@@ -7,15 +7,13 @@
 - Có nơi lưu backup ngoài cùng Docker host và ngân sách dung lượng; `/home` đang ở mức 83% khi audit.
 - Tạo `deploy/staging/.env` từ `env.example`; không commit file này hoặc in secret ra issue/log.
 
-Trước khi start frontend, áp dụng ACL trong `DOCKER-USER`. Docker DNAT port `18080` sang container port `8080`, nên match original destination bằng conntrack:
+Frontend chỉ publish trên loopback. Service `origin-gateway` bind đúng IP LAN và enforce source ACL trong nginx trước khi proxy vào frontend:
 
-```bash
-sudo iptables -I DOCKER-USER 1 -p tcp -s 192.168.1.247 -m conntrack --ctorigdst 192.168.1.243 --ctorigdstport 18080 -j ACCEPT
-sudo iptables -I DOCKER-USER 2 -p tcp -m conntrack --ctorigdst 192.168.1.243 --ctorigdstport 18080 -j DROP
-sudo iptables -S DOCKER-USER
+```text
+192.168.1.247 -> 192.168.1.243:18080 origin-gateway -> 127.0.0.1:18080 frontend
 ```
 
-Các lệnh trên chưa được chạy trong T-167. Owner phải chọn cơ chế persist phù hợp với Oracle Linux 8 và ghi lại rule handles. Rollback dùng chính rule đầy đủ với `iptables -D DOCKER-USER ...`; không flush chain vì chain có thể chứa rule của project khác.
+`origin-gateway.conf` cho phép duy nhất `192.168.1.247` và từ chối các nguồn khác. Cấu hình được persist cùng compose, không phụ thuộc trạng thái firewalld/nftables của host. Có thể bổ sung host firewall làm lớp phòng thủ thứ hai khi có quyền quản trị; không flush hoặc thay rule của project khác.
 
 ## Validate cấu hình
 
@@ -41,7 +39,7 @@ docker image inspect frappe/erpnext:v16.60.0 --format '{{json .RepoDigests}}'
 cd deploy/staging
 docker compose --env-file .env up -d db redis-cache redis-queue configurator
 docker compose --env-file .env --profile setup run --rm create-site
-docker compose --env-file .env up -d backend frontend websocket queue-short queue-long scheduler
+docker compose --env-file .env up -d backend frontend origin-gateway websocket queue-short queue-long scheduler
 docker compose --env-file .env ps
 ```
 

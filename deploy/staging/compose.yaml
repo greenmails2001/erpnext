@@ -136,6 +136,15 @@ services:
       - frontend
       - backend
 
+  origin-gateway:
+    <<: *erpnext-image
+    entrypoint: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/origin-gateway.conf"]
+    network_mode: host
+    volumes:
+      - ./origin-gateway.conf:/etc/nginx/origin-gateway.conf:ro
+    depends_on:
+      - frontend
+
   websocket:
     <<: *backend
     command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
