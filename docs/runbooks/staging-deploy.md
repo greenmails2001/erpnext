@@ -3,9 +3,19 @@
 ## Điều kiện tiên quyết
 
 - Có phê duyệt deploy trên runtime 1.243 và quyền cấu hình Cloudflare Tunnel/auth gateway cho `erpnext.proj.vn`.
-- Xác nhận `127.0.0.1:18080` còn trống và không có stack `erpnext-staging` khác.
+- Xác nhận `192.168.1.243:18080` còn trống, không có stack `erpnext-staging` khác và host firewall chỉ cho `192.168.1.247` truy cập TCP/18080.
 - Có nơi lưu backup ngoài cùng Docker host và ngân sách dung lượng; `/home` đang ở mức 83% khi audit.
 - Tạo `deploy/staging/.env` từ `env.example`; không commit file này hoặc in secret ra issue/log.
+
+Trước khi start frontend, áp dụng ACL trong `DOCKER-USER`. Docker DNAT port `18080` sang container port `8080`, nên match original destination bằng conntrack:
+
+```bash
+sudo iptables -I DOCKER-USER 1 -p tcp -s 192.168.1.247 -m conntrack --ctorigdst 192.168.1.243 --ctorigdstport 18080 -j ACCEPT
+sudo iptables -I DOCKER-USER 2 -p tcp -m conntrack --ctorigdst 192.168.1.243 --ctorigdstport 18080 -j DROP
+sudo iptables -S DOCKER-USER
+```
+
+Các lệnh trên chưa được chạy trong T-167. Owner phải chọn cơ chế persist phù hợp với Oracle Linux 8 và ghi lại rule handles. Rollback dùng chính rule đầy đủ với `iptables -D DOCKER-USER ...`; không flush chain vì chain có thể chứa rule của project khác.
 
 ## Validate cấu hình
 
@@ -35,15 +45,15 @@ docker compose --env-file .env up -d backend frontend websocket queue-short queu
 docker compose --env-file .env ps
 ```
 
-Trước khi có tunnel/auth gateway, kiểm tra nội bộ bằng `http://127.0.0.1:18080` với Host header `erpnext.proj.vn`. Không bind `0.0.0.0`; Cloudflare Tunnel và auth gateway trên cùng host phải gọi origin loopback.
+Trước khi 1.247 route traffic, kiểm tra trên 1.243 bằng `http://192.168.1.243:18080` với Host header `erpnext.proj.vn`. Không bind `0.0.0.0`; bind đúng NIC LAN và enforce source ACL `192.168.1.247`.
 
 Luồng public tạm thời phải là:
 
 ```text
-erpnext.proj.vn -> Cloudflare Tunnel -> Authelia-capable auth gateway -> 127.0.0.1:18080
+erpnext.proj.vn -> Cloudflare Tunnel 1.247 -> Caddy + Authelia 1.247 -> 192.168.1.243:18080
 ```
 
-Authelia dùng LDAP cho lớp đăng nhập thứ nhất; ERPNext login là lớp thứ hai. Cấu hình gateway phải forward websocket và các header `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`. Không triển khai tunnel trực tiếp tới Authelia vì Authelia không phải reverse proxy.
+Authelia dùng LDAP cho lớp đăng nhập thứ nhất; ERPNext login là lớp thứ hai. Caddy phải forward websocket và các header `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`. Handoff phía 1.247 dùng các fragment trong `deploy/staging/n9-1247/`; agent 1.243 không tự sửa service đó.
 
 ## Nghiệm thu tối thiểu
 
@@ -95,7 +105,8 @@ Lệnh trên giữ volumes để điều tra. Chỉ xóa volumes sau khi xác nh
 
 ## Dependency còn thiếu
 
-- Owner/config của Cloudflare Tunnel và auth gateway có Authelia forward-auth; Caddy tạm thời không dùng.
+- Owner 1.247 áp dụng DNS/tunnel/Caddy fragments và xác nhận Authelia internal upstream.
+- Owner 1.243 áp dụng firewall ACL chỉ cho `192.168.1.247:tcp` vào port 18080 trước khi start frontend.
 - Credential staging và policy lưu secret.
 - Storage backup ngoài host, retention và encryption key.
 - Phê duyệt triển khai service và cửa sổ restore drill.

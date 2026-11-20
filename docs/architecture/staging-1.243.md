@@ -30,9 +30,9 @@ Database và Redis chỉ nằm trên Docker network `internal`; không publish c
 
 ```mermaid
 flowchart LR
-    U[Người kiểm thử] --> CF[Cloudflare Tunnel]
-    CF --> AG[Auth gateway dùng Authelia forward-auth]
-    AG -->|127.0.0.1:18080| FE[ERPNext frontend]
+    U[Người kiểm thử] --> CF[Cloudflare Tunnel 1.247]
+    CF --> AG[Caddy + Authelia 1.247]
+    AG -->|192.168.1.243:18080| FE[ERPNext frontend 1.243]
     FE --> BE[Gunicorn backend]
     FE --> WS[Websocket]
     BE --> DB[(MariaDB 11.8)]
@@ -43,16 +43,14 @@ flowchart LR
     S --> B[Backup job]
 ```
 
-Domain được cấp là `https://erpnext.proj.vn`. Port origin đề xuất là `127.0.0.1:18080`; audit không thấy listener tại port này.
+Domain được cấp là `https://erpnext.proj.vn`. Port origin là `192.168.1.243:18080` để Caddy trên 1.247 truy cập qua LAN; audit không thấy listener tại port này. Host firewall phải chỉ cho `192.168.1.247` truy cập port đó.
 
 Giai đoạn đầu dùng hai lớp đăng nhập độc lập:
 
 1. Authelia xác thực LDAP ở lớp ingress.
 2. ERPNext tiếp tục yêu cầu tài khoản/phiên đăng nhập riêng.
 
-Authelia là authorization server/forward-auth service, không tự proxy request tới ERPNext. Vì tạm thời không dùng Caddy, Cloudflare Tunnel phải trỏ tới một auth gateway khác có hỗ trợ Authelia forward-auth, ví dụ Nginx/Traefik hiện hữu hoặc một Nginx gateway được cấp ownership riêng. Không trỏ tunnel thẳng tới Authelia rồi kỳ vọng Authelia chuyển tiếp request.
-
-Việc không có IP tĩnh không cản Caddy hoặc Nginx nằm sau Cloudflare Tunnel: tunnel chủ động kết nối outbound và có thể gọi origin loopback. Tuy nhiên quyết định hiện tại vẫn là chưa dùng Caddy; cấu hình auth gateway cụ thể phải được xác nhận theo service ownership trước deploy.
+Read-only audit xác nhận service chung 1.247 đang dùng Caddy trước Authelia tại `auth.proj.vn`. Vì vậy staging tái sử dụng Caddy/Authelia hiện hữu thay vì dựng gateway mới. Contract và fragment handoff nằm tại `docs/integration/n9-1247-ingress-contract.md` và `deploy/staging/n9-1247/`.
 
 ERPNext được xem là external app của N9. RBAC N9/NEM82 không được giả định là internal-app RBAC hoặc tự động đồng bộ thành ERPNext roles. Giai đoạn hai mới thiết kế identity linking/SSO và mapping group/role; hiện tại hai lớp giữ credential, session và logout tách biệt.
 
