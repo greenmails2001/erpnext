@@ -1,0 +1,7 @@
+# Merge this route into the existing 1.247 tunnel configuration before the
+# catch-all rule. Match the service/CA settings already used by auth.proj.vn.
+- hostname: erpnext.proj.vn
+  service: https://<shared-caddy-upstream>:443
+  originRequest:
+    originServerName: erpnext.proj.vn
+    # Reuse the private Caddy CA pool setting already used by auth.proj.vn.

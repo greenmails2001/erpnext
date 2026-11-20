@@ -1,0 +1,13 @@
+# Apply on the shared N9 1.247 Caddy instance after its owner reviews the
+# existing Caddyfile, network names and Authelia upstream address.
+erpnext.proj.vn {
+	forward_auth {$AUTHELIA_INTERNAL_UPSTREAM} {
+		uri /api/authz/forward-auth
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+	}
+
+	reverse_proxy http://192.168.1.243:18080 {
+		header_up Host erpnext.proj.vn
+		header_up X-Forwarded-Proto https
+	}
+}
