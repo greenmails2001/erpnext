@@ -9,9 +9,11 @@
 
 ## Vị trí triển khai
 
-Git worktree chỉ dùng để phát triển và review. Deployment bền vững trên runtime 1.243 đặt tại `/u01/apps/erpnext`, tách khỏi checkout `/u01/apps/n9` vì ERPNext là external app có lifecycle, secret và backup riêng.
+Multica task worktree chỉ dùng để phát triển và review. Checkout source bền vững đặt tại `/u01/apps/erpnext/source`; deployment runtime đặt tại `/u01/apps/erpnext`, tách khỏi checkout `/u01/apps/n9` vì ERPNext là external app có lifecycle, secret và backup riêng.
 
-Khi phát hành revision mới, copy các artifact đã review từ `deploy/staging/` sang `/u01/apps/erpnext`, giữ `.env` mode `0600`, rồi chạy Compose tại thư mục đích. Không chạy service lâu dài từ Multica task workspace và không copy `.env` ngược vào Git worktree.
+Khi phát hành revision mới, fast-forward `/u01/apps/erpnext/source` tới commit đã review, copy các artifact từ `source/deploy/staging/` sang `/u01/apps/erpnext`, giữ `.env` mode `0600`, rồi chạy Compose tại thư mục đích. Không chạy service lâu dài từ Multica task workspace và không copy `.env` ngược vào Git checkout.
+
+Source custom app không mount trực tiếp từ checkout vào container. Build custom app thành image có tag/digest bất biến, cập nhật image pin trong Compose, migrate và nghiệm thu trước khi chuyển revision live.
 
 Frontend chỉ publish trên loopback. Service `origin-gateway` bind đúng IP LAN và enforce source ACL trong nginx trước khi proxy vào frontend:
 
