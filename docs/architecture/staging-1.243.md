@@ -30,8 +30,9 @@ Database và Redis chỉ nằm trên Docker network `internal`; không publish c
 
 ```mermaid
 flowchart LR
-    U[Người kiểm thử] --> RP[Reverse proxy hiện hữu - cần phê duyệt]
-    RP -->|127.0.0.1:18080| FE[ERPNext frontend]
+    U[Người kiểm thử] --> CF[Cloudflare Tunnel]
+    CF --> AG[Auth gateway dùng Authelia forward-auth]
+    AG -->|127.0.0.1:18080| FE[ERPNext frontend]
     FE --> BE[Gunicorn backend]
     FE --> WS[Websocket]
     BE --> DB[(MariaDB 11.8)]
@@ -42,7 +43,18 @@ flowchart LR
     S --> B[Backup job]
 ```
 
-Port host đề xuất là `127.0.0.1:18080`; audit không thấy listener tại port này. URL public/domain chưa được cấp nên chưa cấu hình TLS hay route reverse proxy.
+Domain được cấp là `https://erpnext.proj.vn`. Port origin đề xuất là `127.0.0.1:18080`; audit không thấy listener tại port này.
+
+Giai đoạn đầu dùng hai lớp đăng nhập độc lập:
+
+1. Authelia xác thực LDAP ở lớp ingress.
+2. ERPNext tiếp tục yêu cầu tài khoản/phiên đăng nhập riêng.
+
+Authelia là authorization server/forward-auth service, không tự proxy request tới ERPNext. Vì tạm thời không dùng Caddy, Cloudflare Tunnel phải trỏ tới một auth gateway khác có hỗ trợ Authelia forward-auth, ví dụ Nginx/Traefik hiện hữu hoặc một Nginx gateway được cấp ownership riêng. Không trỏ tunnel thẳng tới Authelia rồi kỳ vọng Authelia chuyển tiếp request.
+
+Việc không có IP tĩnh không cản Caddy hoặc Nginx nằm sau Cloudflare Tunnel: tunnel chủ động kết nối outbound và có thể gọi origin loopback. Tuy nhiên quyết định hiện tại vẫn là chưa dùng Caddy; cấu hình auth gateway cụ thể phải được xác nhận theo service ownership trước deploy.
+
+ERPNext được xem là external app của N9. RBAC N9/NEM82 không được giả định là internal-app RBAC hoặc tự động đồng bộ thành ERPNext roles. Giai đoạn hai mới thiết kế identity linking/SSO và mapping group/role; hiện tại hai lớp giữ credential, session và logout tách biệt.
 
 ## Lưu trữ và sizing ban đầu
 
@@ -50,6 +62,7 @@ Port host đề xuất là `127.0.0.1:18080`; audit không thấy listener tại
 - Baseline: 2 Gunicorn workers x 4 threads; đo tải trước khi tăng.
 - Runtime có 8 CPU, 15 GiB RAM, khoảng 9 GiB available tại thời điểm audit.
 - `/home` còn khoảng 40 GiB và đã dùng 83%. Cần reserve tối thiểu cho images, database, file uploads và hai bản backup; thiết lập cảnh báo dung lượng trước deploy.
+- Backup đầy đủ chạy hàng tuần, giữ đề xuất 8 tuần (`BACKUP_RETENTION_DAYS=56`) và phải sao chép ra storage ngoài Docker host.
 
 ## MCP và CLI
 
@@ -59,3 +72,4 @@ Frappe v16 cung cấp MCP tại `/api/v2/mcp`, bật bằng `System Settings.ena
 - Tạo System User riêng theo vai trò và chỉ cấp DocType permissions cần thiết.
 - Production profile của `frappectl` phải read-only; staging writable chỉ cho Engineer và vẫn chặn submit/cancel/delete/payment/stock posting bằng role/workflow phía server.
 - Thực hiện positive và negative permission tests sau khi site có credential. Prompt không phải security boundary.
+- Role matrix triển khai nằm tại `docs/security/mcp-role-matrix.md`.

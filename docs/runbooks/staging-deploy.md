@@ -2,7 +2,7 @@
 
 ## Điều kiện tiên quyết
 
-- Có phê duyệt deploy trên runtime 1.243, domain staging và quyền cấu hình reverse proxy.
+- Có phê duyệt deploy trên runtime 1.243 và quyền cấu hình Cloudflare Tunnel/auth gateway cho `erpnext.proj.vn`.
 - Xác nhận `127.0.0.1:18080` còn trống và không có stack `erpnext-staging` khác.
 - Có nơi lưu backup ngoài cùng Docker host và ngân sách dung lượng; `/home` đang ở mức 83% khi audit.
 - Tạo `deploy/staging/.env` từ `env.example`; không commit file này hoặc in secret ra issue/log.
@@ -35,7 +35,15 @@ docker compose --env-file .env up -d backend frontend websocket queue-short queu
 docker compose --env-file .env ps
 ```
 
-Trước khi có reverse proxy, kiểm tra nội bộ bằng `http://127.0.0.1:18080`. Không bind `0.0.0.0` nếu chưa có firewall/TLS approval.
+Trước khi có tunnel/auth gateway, kiểm tra nội bộ bằng `http://127.0.0.1:18080` với Host header `erpnext.proj.vn`. Không bind `0.0.0.0`; Cloudflare Tunnel và auth gateway trên cùng host phải gọi origin loopback.
+
+Luồng public tạm thời phải là:
+
+```text
+erpnext.proj.vn -> Cloudflare Tunnel -> Authelia-capable auth gateway -> 127.0.0.1:18080
+```
+
+Authelia dùng LDAP cho lớp đăng nhập thứ nhất; ERPNext login là lớp thứ hai. Cấu hình gateway phải forward websocket và các header `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`. Không triển khai tunnel trực tiếp tới Authelia vì Authelia không phải reverse proxy.
 
 ## Nghiệm thu tối thiểu
 
@@ -56,6 +64,14 @@ Tạo backup có file:
 docker compose --env-file .env --profile ops run --rm backup
 docker compose --env-file .env exec backend find "sites/$SITE_NAME/private/backups" -maxdepth 1 -type f -printf '%f %s bytes\n'
 ```
+
+Lịch được duyệt là hàng tuần. Sau khi xác định user chạy Docker và đường dẫn checkout bền vững, cài cron/systemd timer tương đương:
+
+```cron
+30 2 * * 0 cd <checkout>/deploy/staging && docker compose --env-file .env --profile ops run --rm backup
+```
+
+Cron chỉ tạo backup trong `sites` volume. Job kế tiếp phải copy bản backup mới nhất sang storage ngoài host, mã hóa theo policy và xóa bản local cũ hơn `${BACKUP_RETENTION_DAYS}` ngày. Không bật cleanup trước khi restore drill pass.
 
 Sao chép backup sang storage ngoài host theo chính sách đã duyệt. Restore chỉ thử trên site tạm, không ghi đè staging đang dùng:
 
@@ -79,7 +95,7 @@ Lệnh trên giữ volumes để điều tra. Chỉ xóa volumes sau khi xác nh
 
 ## Dependency còn thiếu
 
-- Domain/TLS và owner reverse proxy.
+- Owner/config của Cloudflare Tunnel và auth gateway có Authelia forward-auth; Caddy tạm thời không dùng.
 - Credential staging và policy lưu secret.
 - Storage backup ngoài host, retention và encryption key.
 - Phê duyệt triển khai service và cửa sổ restore drill.
