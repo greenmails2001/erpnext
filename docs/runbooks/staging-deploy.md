@@ -7,6 +7,12 @@
 - Có nơi lưu backup ngoài cùng Docker host và ngân sách dung lượng; `/home` đang ở mức 83% khi audit.
 - Tạo `deploy/staging/.env` từ `env.example`; không commit file này hoặc in secret ra issue/log.
 
+## Vị trí triển khai
+
+Git worktree chỉ dùng để phát triển và review. Deployment bền vững trên runtime 1.243 đặt tại `/u01/apps/erpnext`, tách khỏi checkout `/u01/apps/n9` vì ERPNext là external app có lifecycle, secret và backup riêng.
+
+Khi phát hành revision mới, copy các artifact đã review từ `deploy/staging/` sang `/u01/apps/erpnext`, giữ `.env` mode `0600`, rồi chạy Compose tại thư mục đích. Không chạy service lâu dài từ Multica task workspace và không copy `.env` ngược vào Git worktree.
+
 Frontend chỉ publish trên loopback. Service `origin-gateway` bind đúng IP LAN và enforce source ACL trong nginx trước khi proxy vào frontend:
 
 ```text
